@@ -26,6 +26,7 @@ import os
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
 
+#input a list of tensors 
 def average_tensors(tensors, name=None):
     if len(tensors) == 1:
         return tf.identity(tensors[0], name=name)
@@ -34,15 +35,23 @@ def average_tensors(tensors, name=None):
         expanded_tensors = []
 
         for t in tensors:
+            #Returns a tensor with an additional dimension inserted at
+            #index axis, axis = 0 which is rows
+            #This operation is useful if you want to add a batch dimension to a single element
+            #batch is the number of images trained at once
             expanded_t = tf.expand_dims(t, 0)
+            #add expanded tensor to new list of tensors
             expanded_tensors.append(expanded_t)
 
+        #Concatenates tensors along one dimension(axis = 0) rows
         average_tensor = tf.concat(axis=0, values=expanded_tensors)
+        #Computes the mean of elements across dimensions of a tensor
         average_tensor = tf.reduce_mean(average_tensor, 0, name=name)
 
         return average_tensor
 
 
+#tower is a function for computing inference and gradients for a single model replica
 def average_grads(tower_grads):
     """Calculate the average gradient for each shared variable across all towers.
     Note that this function provides a synchronization point across all towers.
@@ -118,13 +127,19 @@ def apply_gradient(update_gradient_vars, grads, optimizer, learning_rate, learni
 
     return apply_gradient_op
 
-
+#finds the rank 1 accuracy
 def rank_accuracy(logits, label, batch_size, k=1):
+    #Finds values and indices of the k largest entries for the last dimension
     _, arg_top = tf.nn.top_k(logits, k)
+    #casts a tensor to a new type 
     label = tf.cast(label, tf.int32)
+    #reshapes a tesor
     label = tf.reshape(label, [batch_size, 1])
+    #Constructs a tensor by tiling a given tensor.
     label = tf.tile(label, [1, k])
+    #Computes the "logical or" of elements across dimensions of a tensor
     correct = tf.reduce_any(tf.equal(label, arg_top), axis=1)
+    #Computes the mean of elements across dimensions of a tensor.
     accuracy = tf.reduce_mean(tf.cast(correct, tf.float32))
     return accuracy
 
@@ -213,6 +228,8 @@ def euclidean_distance(X, Y, sqrt=False):
             diffs = tf.sqrt(tf.maximum(0.0, diffs))
     return diffs
 
+#softmax is an activation function that turns numbers aka logits into probabilities that sum to one.
+#function outputs a vector that represents the probability distributions of a list of potential outcomes
 def cosine_softmax(prelogits, label, num_classes, weight_decay, gamma=16.0, reuse=None):
     
     nrof_features = prelogits.shape[1].value
@@ -265,6 +282,12 @@ def norm_loss(prelogits, alpha, reuse=None):
     # tf.add_to_collection('watch_list', ('sigma', sigma))
     return norm_loss
 
+
+#function proposed in sphereface
+#To this end, we propose the angular softmax (A-Softmax) loss that enables convolutional neural
+#networks (CNNs) to learn angularly discriminative features.Geometrically, A-Softmax loss can be
+#viewed as imposing discriminative constraints on a hypersphere manifold, which intrinsically matches
+#the prior that faces also lie on a manifold. 
 def angular_softmax(prelogits, label, num_classes, global_step, 
             m, lamb_min, lamb_max, weight_decay, reuse=None):
     num_features = prelogits.shape[1].value

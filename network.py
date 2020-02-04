@@ -127,12 +127,14 @@ class Network:
 
                                 # Orignal Softmax
                                 if 'softmax' in config.losses.keys():
+                                    #Adds the parameters for a fully connected layer and returns the output.
                                     logits = slim.fully_connected(prelogits, num_classes, 
                                                                     weights_regularizer=slim.l2_regularizer(config.weight_decay),
                                                                     # weights_initializer=tf.truncated_normal_initializer(stddev=0.1),
                                                                     weights_initializer=slim.xavier_initializer(),
                                                                     biases_initializer=tf.constant_initializer(0.0),
                                                                     activation_fn=None, scope='Logits')
+                                    #get the average loss over the batch
                                     cross_entropy = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(
                                                     labels=labels, logits=logits), name='cross_entropy')
                                     losses.append(cross_entropy)
@@ -164,8 +166,11 @@ class Network:
                                 reg_loss = tf.reduce_sum(tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES), name='reg_loss')
                                 losses.append(reg_loss)
                                 insert_dict('reg_loss', reg_loss)
-
+\
+                                #Adds all input tensors element-wise
                                 total_loss = tf.add_n(losses, name='total_loss')
+                                #trainable_variables returns all variables created with trainable=True
+                                #Constructs symbolic derivatives of sum of total_loss w.r.t. x in trainable_variables()
                                 grads_split = tf.gradients(total_loss, tf.trainable_variables())
                                 grads_splits.append(grads_split)
 
@@ -183,25 +188,43 @@ class Network:
 
 
                 # Training Operaters
+
+                #calls apply gradiet function from tflib
+                # trainable variables constructor automatically adds new variables to the graph collection
+                #GraphKeys.TRAINABLE_VARIABLES.This convenience function returns the contents of that collection.
                 apply_gradient_op = tflib.apply_gradient(tf.trainable_variables(), grads, config.optimizer,
                                         learning_rate_placeholder, config.learning_rate_multipliers)
 
+                #tf assign_add updates ref(a mutable tensor) by adding value to it
                 update_global_step_op = tf.assign_add(global_step, 1)
 
+
+                #Returns a list of values in the collection UPDATE_OPS
+                #UPDATE_OPS is a collection of ops (operations performed when the graph runs, like multiplication, ReLU, etc.),
+                #Rhis collection maintains a list of ops which need to run before each training step.
                 update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
 
+                #creates a list of all training operations
                 train_ops = [apply_gradient_op, update_global_step_op] + update_ops
+                #Create an op that groups multiple operations
                 train_op = tf.group(*train_ops)
 
+                #writes a scalar summary called 'learning_rate'
                 tf.summary.scalar('learning_rate', learning_rate_placeholder)
+
+                #Merges all summaries collected in the default graph
                 summary_op = tf.summary.merge_all()
 
                 # Initialize variables
+                #Returns an Op that initializes all local variables
                 self.sess.run(tf.local_variables_initializer())
+                #Returns an Op that initializes all global variables
                 self.sess.run(tf.global_variables_initializer())
+                #The constructor adds ops to save and restore variables
                 self.saver = tf.train.Saver(tf.trainable_variables(), max_to_keep=None)
 
                 # Keep useful tensors
+                #“self” keyword binds the attributes of a class with the given arguments
                 self.image_batch_placeholder = image_batch_placeholder
                 self.label_batch_placeholder = label_batch_placeholder 
                 self.learning_rate_placeholder = learning_rate_placeholder 
@@ -213,33 +236,44 @@ class Network:
                 self.summary_op = summary_op
                 
 
-
+    #input: instance of self, image_batch, learning rate, keep_prob
+    #feed data into the graph using placeholders
     def train(self, image_batch, label_batch, learning_rate, keep_prob):
+        #dict through which the data is held
         feed_dict = {self.image_batch_placeholder: image_batch,
                     self.label_batch_placeholder: label_batch,
                     self.learning_rate_placeholder: learning_rate,
                     self.keep_prob_placeholder: keep_prob,
                     self.phase_train_placeholder: True,}
+
+        #This method runs one "step" of TensorFlow computation, by running the necessary graph fragment to execute every operation 
+        #and evaluate every Tensor in fetches, substituting the values in feed_dict for the corresponding input values.
+        #value returned has the same shape as fetches
         _, wl, sm = self.sess.run([self.train_op, self.watch_list, self.summary_op], feed_dict = feed_dict)
         step = self.sess.run(self.global_step)
 
+        #return watchlist, summary, and step
         return wl, sm, step
-    
+
+    #restore model variables, calls restore model function in tflib
     def restore_model(self, model_dir, restore_scopes):
         with self.graph.as_default():
             trainable_variables = tf.trainable_variables()
             tflib.restore_model(self.sess, trainable_variables, model_dir, restore_scopes)
 
+    #calls save_model function in tflib
     def save_model(self, model_dir, global_step):
         tflib.save_model(self.sess, self.saver, model_dir, global_step)
         
 
+    #calls load_model function in tflib with instance current network session
     def load_model(self, *args):
         tflib.load_model(self.sess, *args)
         self.phase_train_placeholder = self.graph.get_tensor_by_name('phase_train:0')
         self.keep_prob_placeholder = self.graph.get_tensor_by_name('keep_prob:0')
         self.inputs = self.graph.get_tensor_by_name('inputs:0')
         self.outputs = self.graph.get_tensor_by_name('outputs:0')
+
 
     def extract_feature(self, images, batch_size, preprocess=False, config=None, is_training=False):
         num_images = images.shape[0] if type(images)==np.ndarray else len(images)
